@@ -1,5 +1,7 @@
 import random
 import os
+import json
+import sqlite3
 from time import sleep
 import requests
 from bs4 import BeautifulSoup
@@ -26,18 +28,52 @@ def write_to_file(**kwargs):
         file.write(row + '\n')
 
 
-def write(_format='file', **kwargs):
+def write_to_json(**kwargs):
+    # current date and time
+    with open('./results.json') as json_file:
+        data = json.load(json_file)
+        data[kwargs['title']] = kwargs
+
+    with open('./results.json', 'w') as json_file:
+        json.dump(data, json_file, indent=4, ensure_ascii=False)
+
+
+def write_to_db(**kwargs):
+    # current date and time
+    conn = sqlite3.connect('parse_db.db')
+    c = conn.cursor()
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS 'jobs_list'
+        (href text, title text, content text, salary text, salary_type text, company text,
+        company_type text, company_size text, address text, recruiter text, work_type text)'''
+    )
+    conn.commit()
+    values = ["'нет информации'" if i is None else f"'{i}'" for i in kwargs.values()]
+    print(f"INSERT INTO 'jobs_list' VALUES ({', '.join(values)})")
+    c.execute(f"INSERT INTO 'jobs_list' VALUES ({', '.join(values)})")
+
+    conn.commit()
+
+    conn.close()
+
+
+def write(_format='json', **kwargs):
     if _format == 'file':
         write_to_file(**kwargs)
+    elif _format == 'sqlite':
+        write_to_db(**kwargs)
+    elif _format == 'json':
+        write_to_json(**kwargs)
 
 
-# additional function
+# auxiliary function of detailed parse
 def safe_next(body, times):
     for i in range(times):
         body = getattr(body, 'next') if body is not None else None
     return body
 
 
+# auxiliary function of detailed parse
 def cleen(string):
     if string is None:
         return None
@@ -46,6 +82,9 @@ def cleen(string):
         '\n',
         '\u202f',
         '\u2009',
+        '\xa0',
+        ';',
+        "'",
     ]
     for element in elements:
         if element in string:
@@ -54,7 +93,11 @@ def cleen(string):
 
 
 def parse_details(url):
-    response = requests.get(url)
+    ua = UserAgent()
+    headers = {
+            'User-Agent': ua.random,
+    }
+    response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.text, 'html.parser')
     main_block = soup.find('div', {'class': 'card wordwrap'})
     # salary and company blocks
@@ -93,8 +136,7 @@ def parse_details(url):
     # cleen data
     data = [cleen(i) for i in (salary, salary_type, company, company_type, company_size, address, recruiter, work_type)]
     keys = ('salary', 'salary_type', 'company', 'company_type', 'company_size', 'address', 'recruiter', 'work_type')
-    D = dict(zip(keys, data))
-    return D
+    return dict(zip(keys, data))
 
 
 def main():
